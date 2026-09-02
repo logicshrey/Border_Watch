@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Play, ChevronRight, Layers, GitCompareArrows, Grid3x3, ScanLine,
   CheckCircle2, TerminalSquare, Crosshair
@@ -14,14 +14,80 @@ const STEPS = [
   { key: "overlay", label: "Overlay", icon: Crosshair },
 ];
 
+function normalizeDates(raw) {
+  const list = Array.isArray(raw) ? raw : (raw?.dates ?? []);
+  return list.map((d) => (typeof d === "string" ? d : d?.date)).filter(Boolean);
+}
+
+function usePreprocessedImage(aoiId, date) {
+  const [imageUrl, setImageUrl] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl = null;
+    setImageUrl(null);
+    if (!aoiId || !date) return undefined;
+
+    (async () => {
+      try {
+        const res = await api.getPreprocessedImage(aoiId, date);
+        const url = res?.imageUrl ?? null;
+        if (cancelled) {
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setImageUrl(url);
+      } catch {
+        if (!cancelled) setImageUrl(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [aoiId, date]);
+
+  return imageUrl;
+}
+
 export function Workbench({ aois, selectedAoiId }) {
   const [aoiId, setAoiId] = useState(selectedAoiId || aois[0]?.id || "");
-  const [dateA, setDateA] = useState("2026-08-01");
-  const [dateB, setDateB] = useState("2026-08-26");
+  const [availableDates, setAvailableDates] = useState([]);
+  const [dateA, setDateA] = useState("");
+  const [dateB, setDateB] = useState("");
   const [threshold, setThreshold] = useState(0.55);
   const [activeStep, setActiveStep] = useState(0);
   const [status, setStatus] = useState("idle"); // idle | running | done
   const [distMatrix, setDistMatrix] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!aoiId) return undefined;
+
+    (async () => {
+      try {
+        const raw = await api.getAvailableDates(aoiId);
+        const dates = normalizeDates(raw);
+        if (cancelled) return;
+        setAvailableDates(dates);
+        setDateA(dates[0] ?? "");
+        setDateB(dates[1] ?? dates[0] ?? "");
+      } catch {
+        if (!cancelled) {
+          setAvailableDates([]);
+          setDateA("");
+          setDateB("");
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [aoiId]);
+
+  const imageUrlA = usePreprocessedImage(aoiId, dateA);
+  const imageUrlB = usePreprocessedImage(aoiId, dateB);
 
   const run = useCallback(async () => {
     setStatus("running");
@@ -48,10 +114,14 @@ export function Workbench({ aois, selectedAoiId }) {
             </select>
           </Field>
           <Field label="Date A">
-            <input className="input" type="date" value={dateA} onChange={(e) => setDateA(e.target.value)} />
+            <select className="input" value={dateA} onChange={(e) => setDateA(e.target.value)} disabled={!availableDates.length}>
+              {availableDates.map((d) => <option key={`a-${d}`} value={d}>{d}</option>)}
+            </select>
           </Field>
           <Field label="Date B">
-            <input className="input" type="date" value={dateB} onChange={(e) => setDateB(e.target.value)} />
+            <select className="input" value={dateB} onChange={(e) => setDateB(e.target.value)} disabled={!availableDates.length}>
+              {availableDates.map((d) => <option key={`b-${d}`} value={d}>{d}</option>)}
+            </select>
           </Field>
           <Field label={`Change threshold — ${threshold.toFixed(2)}`}>
             <input className="w-full" type="range" min="0.1" max="0.9" step="0.01" value={threshold}
@@ -89,7 +159,7 @@ export function Workbench({ aois, selectedAoiId }) {
         <div className="grid grid-cols-2 gap-4">
           <CornerFrame>
             <PanelHeader icon={Layers} title="PATCH EMBEDDING GRID" sub={`${GRID_N} × ${GRID_N} patches`} />
-            <div className="p-4 flex justify-center"><PatchGrid seed={aoiId + dateA} /></div>
+            <div className="p-4 flex justify-center"><PatchGrid seed={aoiId + dateA} imageUrl={imageUrlA} /></div>
           </CornerFrame>
 
           <CornerFrame>
@@ -114,7 +184,7 @@ export function Workbench({ aois, selectedAoiId }) {
             <PanelHeader icon={Crosshair} title="OVERLAY RESULT" sub="RGB composite + flagged patches" />
             <div className="p-4 flex justify-center">
               {distMatrix
-                ? <OverlayView values={distMatrix} threshold={threshold} seed={aoiId + dateA} />
+                ? <OverlayView values={distMatrix} threshold={threshold} seed={aoiId + dateB} imageUrl={imageUrlB} />
                 : <EmptyGridHint text="Awaiting mask" />}
             </div>
           </CornerFrame>
@@ -149,10 +219,25 @@ function TerrainTexture({ seed }) {
   );
 }
 
-function PatchGrid({ seed }) {
+function ImageryLayer({ imageUrl, seed }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [imageUrl]);
+
+  if (!imageUrl || failed) return <TerrainTexture seed={seed} />;
+  return (
+    <img
+      src={imageUrl}
+      alt=""
+      className="absolute inset-0 w-full h-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function PatchGrid({ seed, imageUrl }) {
   return (
     <div className="relative" style={{ width: 252, height: 252 }}>
-      <TerrainTexture seed={seed} />
+      <ImageryLayer imageUrl={imageUrl} seed={seed} />
       <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
         {Array.from({ length: GRID_N * GRID_N }).map((_, i) => (
           <div key={i} style={{ border: "1px solid rgba(63,199,216,0.18)" }} />
@@ -184,10 +269,10 @@ function MaskGrid({ values, threshold }) {
   );
 }
 
-function OverlayView({ values, threshold, seed }) {
+function OverlayView({ values, threshold, seed, imageUrl }) {
   return (
     <div className="relative" style={{ width: 252, height: 252 }}>
-      <TerrainTexture seed={seed} />
+      <ImageryLayer imageUrl={imageUrl} seed={seed} />
       <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
         {values.map((v, i) => (
           <div key={i} style={{
