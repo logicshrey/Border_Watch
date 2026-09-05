@@ -59,11 +59,11 @@ function SectorSchematic({ aois, alerts, onSelectSector }) {
     return found ? found.risk : 12;
   };
   const points = "20,140 70,100 120,110 170,60 220,75 270,30 320,45";
-  const nodes = [
-    { x: 70, y: 100, name: "Sector A-04" },
-    { x: 170, y: 60, name: "Sector B-12" },
-    { x: 270, y: 30, name: "Sector C-19" },
-  ];
+  const nodes = (aois.length ? aois : []).map((a, i) => ({
+    x: 70 + (i * 200) / Math.max(aois.length - 1, 1),
+    y: 100 - i * 28,
+    name: a.name,
+  }));
   return (
     <div className="p-4">
       <svg viewBox="0 0 340 170" className="w-full h-40">

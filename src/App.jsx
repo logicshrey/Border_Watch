@@ -26,8 +26,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api.getAois().then(setAois);
-    api.getAlertLog().then(setAlerts);
+    api.getAois().then(setAois).catch(() => setAois([]));
+    api.getAlertLog().then(setAlerts).catch(() => setAlerts([]));
   }, []);
 
   return (

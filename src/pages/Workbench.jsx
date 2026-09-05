@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   Play, ChevronRight, Layers, GitCompareArrows, Grid3x3, ScanLine,
   CheckCircle2, TerminalSquare, Crosshair
 } from "lucide-react";
-import { api, delay, GRID_N, seededRand } from "../api/client.js";
+import { api, delay, seededRand, gridFromManifest, gridFromComparison } from "../api/client.js";
 import { CornerFrame, PanelHeader, Field } from "../components/ui.jsx";
 
 const STEPS = [
@@ -57,10 +57,12 @@ export function Workbench({ aois, selectedAoiId }) {
   const [availableDates, setAvailableDates] = useState([]);
   const [dateA, setDateA] = useState("");
   const [dateB, setDateB] = useState("");
-  const [threshold, setThreshold] = useState(0.55);
   const [activeStep, setActiveStep] = useState(0);
   const [status, setStatus] = useState("idle"); // idle | running | done
-  const [distMatrix, setDistMatrix] = useState(null);
+  const [statusMatrix, setStatusMatrix] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [pipelineError, setPipelineError] = useState(null);
+  const [patchGrid, setPatchGrid] = useState({ rows: 0, cols: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -86,22 +88,52 @@ export function Workbench({ aois, selectedAoiId }) {
     return () => { cancelled = true; };
   }, [aoiId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setPatchGrid({ rows: 0, cols: 0 });
+    if (!dateA) return undefined;
+
+    (async () => {
+      try {
+        const manifest = await api.getPatchManifest(dateA);
+        if (cancelled) return;
+        setPatchGrid(gridFromManifest(manifest));
+      } catch {
+        if (!cancelled) setPatchGrid({ rows: 0, cols: 0 });
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [dateA]);
+
   const imageUrlA = usePreprocessedImage(aoiId, dateA);
   const imageUrlB = usePreprocessedImage(aoiId, dateB);
 
   const run = useCallback(async () => {
     setStatus("running");
     setActiveStep(0);
+    setPipelineError(null);
+    setStatusMatrix(null);
+    setStats(null);
     for (let i = 0; i < STEPS.length; i++) {
       await delay(320);
       setActiveStep(i);
     }
-    const res = await api.runPipeline(aoiId, dateA, dateB);
-    setDistMatrix(res.distMatrix);
-    setStatus("done");
+    try {
+      const res = await api.runPipeline(aoiId, dateA, dateB);
+      setStatusMatrix(res.statusMatrix);
+      setStats(res.stats ?? null);
+      setStatus("done");
+    } catch (err) {
+      setStatusMatrix(null);
+      setStats(null);
+      setPipelineError(err?.notComputed ? "not yet computed" : (err?.message || "Analysis failed"));
+      setStatus("idle");
+    }
   }, [aoiId, dateA, dateB]);
 
-  const maxDist = useMemo(() => (distMatrix ? Math.max(...distMatrix) : 1), [distMatrix]);
+  const cmpGrid = gridFromComparison(statusMatrix, stats);
+  const resultHint = pipelineError || (statusMatrix ? null : "Run analysis to compute");
 
   return (
     <div className="grid grid-cols-5 gap-4">
@@ -123,15 +155,21 @@ export function Workbench({ aois, selectedAoiId }) {
               {availableDates.map((d) => <option key={`b-${d}`} value={d}>{d}</option>)}
             </select>
           </Field>
-          <Field label={`Change threshold — ${threshold.toFixed(2)}`}>
-            <input className="w-full" type="range" min="0.1" max="0.9" step="0.01" value={threshold}
-              onChange={(e) => setThreshold(parseFloat(e.target.value))} />
-          </Field>
-          <button className="btn-primary mt-1" onClick={run} disabled={status === "running"}>
+          <button className="btn-primary mt-1" onClick={run} disabled={status === "running" || !dateA || !dateB}>
             <Play size={12} /> {status === "running" ? "Running…" : "Run analysis"}
           </button>
+          {stats && (
+            <div className="text-[10px] mono" style={{ color: "var(--text-dim)" }}>
+              {stats.changed_patches ?? "—"} changed · {stats.unchanged_patches ?? "—"} none · {stats.unknown_patches ?? "—"} cloud
+            </div>
+          )}
+          {pipelineError && (
+            <div className="text-[10px] mono" style={{ color: "var(--accent-amber)" }}>
+              {pipelineError}
+            </div>
+          )}
           <div className="text-[10px] mono" style={{ color: "var(--text-dim)" }}>
-            DATA MODE: SIMULATED
+            DATA MODE: LIVE
           </div>
         </div>
       </CornerFrame>
@@ -158,34 +196,40 @@ export function Workbench({ aois, selectedAoiId }) {
 
         <div className="grid grid-cols-2 gap-4">
           <CornerFrame>
-            <PanelHeader icon={Layers} title="PATCH EMBEDDING GRID" sub={`${GRID_N} × ${GRID_N} patches`} />
-            <div className="p-4 flex justify-center"><PatchGrid seed={aoiId + dateA} imageUrl={imageUrlA} /></div>
-          </CornerFrame>
-
-          <CornerFrame>
-            <PanelHeader icon={GitCompareArrows} title="DISTANCE HEATMAP" sub="Euclidean distance, patch-wise" />
+            <PanelHeader
+              icon={Layers}
+              title="PATCH EMBEDDING GRID"
+              sub={patchGrid.rows && patchGrid.cols ? `${patchGrid.rows} × ${patchGrid.cols} patches` : "awaiting manifest"}
+            />
             <div className="p-4 flex justify-center">
-              {distMatrix
-                ? <DistanceGrid values={distMatrix} max={maxDist} />
-                : <EmptyGridHint text="Run analysis to compute" />}
+              <PatchGrid seed={aoiId + dateA} imageUrl={imageUrlA} rows={patchGrid.rows} cols={patchGrid.cols} />
             </div>
           </CornerFrame>
 
           <CornerFrame>
-            <PanelHeader icon={ScanLine} title="BINARY CHANGE MASK" sub={`threshold = ${threshold.toFixed(2)}`} />
+            <PanelHeader icon={GitCompareArrows} title="CHANGE STATUS" sub="0 none · 1 change · 2 unknown/cloud" />
             <div className="p-4 flex justify-center">
-              {distMatrix
-                ? <MaskGrid values={distMatrix} threshold={threshold} />
-                : <EmptyGridHint text="Awaiting distance matrix" />}
+              {statusMatrix
+                ? <DistanceGrid statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} />
+                : <EmptyGridHint text={resultHint || "Run analysis to compute"} />}
+            </div>
+          </CornerFrame>
+
+          <CornerFrame>
+            <PanelHeader icon={ScanLine} title="BINARY CHANGE MASK" sub="backend-thresholded 3-class mask" />
+            <div className="p-4 flex justify-center">
+              {statusMatrix
+                ? <MaskGrid statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} />
+                : <EmptyGridHint text={pipelineError || "Awaiting status matrix"} />}
             </div>
           </CornerFrame>
 
           <CornerFrame>
             <PanelHeader icon={Crosshair} title="OVERLAY RESULT" sub="RGB composite + flagged patches" />
             <div className="p-4 flex justify-center">
-              {distMatrix
-                ? <OverlayView values={distMatrix} threshold={threshold} seed={aoiId + dateB} imageUrl={imageUrlB} />
-                : <EmptyGridHint text="Awaiting mask" />}
+              {statusMatrix
+                ? <OverlayView statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} seed={aoiId + dateB} imageUrl={imageUrlB} />
+                : <EmptyGridHint text={pipelineError || "Awaiting mask"} />}
             </div>
           </CornerFrame>
         </div>
@@ -229,56 +273,73 @@ function ImageryLayer({ imageUrl, seed }) {
       src={imageUrl}
       alt=""
       className="absolute inset-0 w-full h-full object-cover"
+      data-live-preview="true"
       onError={() => setFailed(true)}
     />
   );
 }
 
-function PatchGrid({ seed, imageUrl }) {
+function PatchGrid({ seed, imageUrl, rows, cols }) {
+  const n = Math.max(0, rows) * Math.max(0, cols);
   return (
     <div className="relative" style={{ width: 252, height: 252 }}>
       <ImageryLayer imageUrl={imageUrl} seed={seed} />
-      <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
-        {Array.from({ length: GRID_N * GRID_N }).map((_, i) => (
-          <div key={i} style={{ border: "1px solid rgba(63,199,216,0.18)" }} />
-        ))}
-      </div>
+      {n > 0 && (
+        <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+          {Array.from({ length: n }).map((_, i) => (
+            <div key={i} style={{ border: "1px solid rgba(63,199,216,0.18)" }} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function DistanceGrid({ values, max }) {
+function flattenMatrix(statusMatrix, rows, cols) {
+  const cells = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push(statusMatrix?.[r]?.[c] ?? 2);
+    }
+  }
+  return cells;
+}
+
+function DistanceGrid({ statusMatrix, rows, cols }) {
+  const cells = flattenMatrix(statusMatrix, rows, cols);
   return (
-    <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
-      {values.map((v, i) => {
-        const t = v / max;
-        const c = `rgba(63,199,216,${0.06 + t * 0.85})`;
+    <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+      {cells.map((v, i) => {
+        const c = v === 1 ? "rgba(225,74,63,0.9)" : v === 2 ? "rgba(92,113,133,0.85)" : "rgba(63,199,216,0.18)";
         return <div key={i} style={{ background: c }} />;
       })}
     </div>
   );
 }
 
-function MaskGrid({ values, threshold }) {
+function MaskGrid({ statusMatrix, rows, cols }) {
+  const cells = flattenMatrix(statusMatrix, rows, cols);
   return (
-    <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
-      {values.map((v, i) => (
-        <div key={i} style={{ background: v >= threshold ? "var(--accent-red)" : "#0c141c", border: "1px solid #0a1016" }} />
-      ))}
+    <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+      {cells.map((v, i) => {
+        const background = v === 1 ? "var(--accent-red)" : v === 2 ? "#3a4550" : "#0c141c";
+        return <div key={i} style={{ background, border: "1px solid #0a1016" }} />;
+      })}
     </div>
   );
 }
 
-function OverlayView({ values, threshold, seed, imageUrl }) {
+function OverlayView({ statusMatrix, rows, cols, seed, imageUrl }) {
+  const cells = flattenMatrix(statusMatrix, rows, cols);
   return (
     <div className="relative" style={{ width: 252, height: 252 }}>
       <ImageryLayer imageUrl={imageUrl} seed={seed} />
-      <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${GRID_N}, 1fr)` }}>
-        {values.map((v, i) => (
+      <div className="grid absolute inset-0" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+        {cells.map((v, i) => (
           <div key={i} style={{
             border: "1px solid rgba(63,199,216,0.1)",
-            background: v >= threshold ? "rgba(225,74,63,0.55)" : "transparent",
-            outline: v >= threshold ? "1px solid var(--accent-red)" : "none",
+            background: v === 1 ? "rgba(225,74,63,0.55)" : v === 2 ? "rgba(92,113,133,0.45)" : "transparent",
+            outline: v === 1 ? "1px solid var(--accent-red)" : "none",
           }} />
         ))}
       </div>
