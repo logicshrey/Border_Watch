@@ -6,6 +6,7 @@ import { api } from "./api/client.js";
 import { CommandDeck } from "./pages/CommandDeck.jsx";
 import { Workbench } from "./pages/Workbench.jsx";
 import { AlertLog } from "./pages/AlertLog.jsx";
+import { Starfield } from "./components/Starfield.jsx";
 
 const NAV = [
   { key: "deck", label: "Command Deck", icon: Satellite },
@@ -31,6 +32,8 @@ export default function App() {
   }, []);
 
   return (
+    <>
+    <Starfield />
     <div className="shell">
       <style>{`
         .shell {
@@ -44,13 +47,21 @@ export default function App() {
           --accent-red: #e14a3f;
           --font-sans: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
           --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
-          background: var(--bg-void);
+          background-color: transparent;
           color: var(--text-primary);
           font-family: var(--font-sans);
           min-height: 100vh;
+          position: relative;
+          z-index: 1;
           background-image: linear-gradient(rgba(63,199,216,0.03) 1px, transparent 1px),
                              linear-gradient(90deg, rgba(63,199,216,0.03) 1px, transparent 1px);
           background-size: 26px 26px;
+        }
+        .starfield {
+          position: fixed;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
         }
         .mono { font-family: var(--font-mono); }
         .panel { position: relative; background: var(--panel); border: 1px solid var(--panel-border); }
@@ -91,10 +102,13 @@ export default function App() {
           color: var(--text-dim); cursor: pointer; border-left: 2px solid transparent;
         }
         nav .nav-item.active { color: var(--text-primary); border-left-color: var(--accent-cyan); background: rgba(63,199,216,0.05); }
+        .shell-bar, .shell-nav {
+          background: rgba(6, 10, 15, 0.82);
+        }
       `}</style>
 
       {/* top bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--panel-border)" }}>
+      <div className="shell-bar flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--panel-border)" }}>
         <div className="flex items-center gap-2">
           <Satellite size={16} style={{ color: "var(--accent-cyan)" }} />
           <span className="text-sm tracking-wide">BORDERWATCH</span>
@@ -109,7 +123,7 @@ export default function App() {
       </div>
 
       <div className="flex">
-        <nav className="w-52 shrink-0 py-3 border-r" style={{ borderColor: "var(--panel-border)" }}>
+        <nav className="shell-nav w-52 shrink-0 py-3 border-r" style={{ borderColor: "var(--panel-border)" }}>
           {NAV.map((n) => (
             <div key={n.key} className={`nav-item ${page === n.key ? "active" : ""}`} onClick={() => setPage(n.key)}>
               <n.icon size={14} /> {n.label}
@@ -136,5 +150,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </>
   );
 }

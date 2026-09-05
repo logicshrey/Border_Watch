@@ -1,7 +1,8 @@
 import {
-  ShieldAlert, Activity, MapPin, Radar
+  ShieldAlert, Activity, MapPin, Radar, Globe2
 } from "lucide-react";
 import { CornerFrame, PanelHeader, RiskBadge } from "../components/ui.jsx";
+import { Globe } from "../components/Globe.jsx";
 
 export function CommandDeck({ alerts, aois, onSelectSector }) {
   const stats = [
@@ -13,6 +14,11 @@ export function CommandDeck({ alerts, aois, onSelectSector }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <CornerFrame>
+        <PanelHeader icon={Globe2} title="ORBITAL TRACK" sub="Tanot AOI · 27.83°N 70.17°E" />
+        <Globe lat={27.83} lon={70.17} label="TANOT SECTOR" />
+      </CornerFrame>
+
       <div className="grid grid-cols-4 gap-4">
         {stats.map((s) => (
           <CornerFrame key={s.label}>
