@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import GlobeGL from "react-globe.gl";
+import { OrbitalHUD } from "./OrbitalHUD.jsx";
 
 const ACCENT_CYAN = "#3fc7d8";
 const TANOT = { lat: 27.83, lng: 70.17 };
@@ -118,25 +119,25 @@ export function Globe({
             ringMaxRadius={4}
             ringPropagationSpeed={2.2}
             ringRepeatPeriod={1100}
-            labelsData={marker}
-            labelLat="lat"
-            labelLng="lng"
-            labelText="name"
-            labelColor={() => ACCENT_CYAN}
-            labelSize={1.6}
-            labelDotRadius={0.2}
-            labelAltitude={0.03}
-            labelIncludeDot={false}
             htmlElementsData={marker}
             htmlLat="lat"
             htmlLng="lng"
             htmlAltitude={0.02}
             htmlElement={htmlElement}
             onPointClick={flyToTanot}
-            onLabelClick={flyToTanot}
             onGlobeClick={onNearTanot}
           />
         )}
+
+        <OrbitalHUD
+          globeRef={globeRef}
+          hostRef={hostRef}
+          lat={lat}
+          lon={lon}
+          label={label}
+          sectorName={TANOT_SECTOR}
+          onActivate={flyToTanot}
+        />
       </div>
     </div>
   );
