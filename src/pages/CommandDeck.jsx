@@ -16,7 +16,7 @@ export function CommandDeck({ alerts, aois, onSelectSector }) {
     <div className="flex flex-col gap-4">
       <CornerFrame>
         <PanelHeader icon={Globe2} title="ORBITAL TRACK" sub="Tanot AOI · 27.83°N 70.17°E" />
-        <Globe lat={27.83} lon={70.17} label="TANOT SECTOR" />
+        <Globe lat={27.83} lon={70.17} label="TANOT SECTOR" onSelectSector={onSelectSector} />
       </CornerFrame>
 
       <div className="grid grid-cols-4 gap-4">
