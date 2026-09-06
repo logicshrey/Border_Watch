@@ -14,6 +14,33 @@ const STEPS = [
   { key: "overlay", label: "Overlay", icon: Crosshair },
 ];
 
+// Single source of truth for what each status value means and how it renders.
+// status 0 = no change, 1 = change, 2 = unknown/cloud.
+// Every grid + the legend below all read from this so they can never disagree.
+const STATUS_INFO = {
+  0: { label: "No change", swatch: "rgba(63,199,216,0.28)", grid: "rgba(63,199,216,0.22)" },
+  1: { label: "Change", swatch: "var(--accent-red)", grid: "var(--accent-red)" },
+  2: { label: "Unknown / cloud", swatch: "#4a5666", grid: "#4a5666" },
+};
+
+function StatusLegend() {
+  return (
+    <div className="flex items-center gap-4 px-4 pb-3 pt-1 flex-wrap">
+      {Object.entries(STATUS_INFO).map(([key, info]) => (
+        <div key={key} className="flex items-center gap-1.5">
+          <span
+            style={{
+              width: 10, height: 10, display: "inline-block",
+              background: info.swatch, border: "1px solid rgba(255,255,255,0.15)",
+            }}
+          />
+          <span className="text-[9.5px] mono" style={{ color: "var(--text-dim)" }}>{info.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function normalizeDates(raw) {
   const list = Array.isArray(raw) ? raw : (raw?.dates ?? []);
   return list.map((d) => (typeof d === "string" ? d : d?.date)).filter(Boolean);
@@ -207,12 +234,13 @@ export function Workbench({ aois, selectedAoiId }) {
           </CornerFrame>
 
           <CornerFrame>
-            <PanelHeader icon={GitCompareArrows} title="CHANGE STATUS" sub="0 none · 1 change · 2 unknown/cloud" />
+            <PanelHeader icon={GitCompareArrows} title="CHANGE STATUS" sub="patch-wise classification" />
             <div className="p-4 flex justify-center">
               {statusMatrix
                 ? <DistanceGrid statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} />
                 : <EmptyGridHint text={resultHint || "Run analysis to compute"} />}
             </div>
+            {statusMatrix && <StatusLegend />}
           </CornerFrame>
 
           <CornerFrame>
@@ -222,6 +250,7 @@ export function Workbench({ aois, selectedAoiId }) {
                 ? <MaskGrid statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} />
                 : <EmptyGridHint text={pipelineError || "Awaiting status matrix"} />}
             </div>
+            {statusMatrix && <StatusLegend />}
           </CornerFrame>
 
           <CornerFrame>
@@ -231,6 +260,7 @@ export function Workbench({ aois, selectedAoiId }) {
                 ? <OverlayView statusMatrix={statusMatrix} rows={cmpGrid.rows} cols={cmpGrid.cols} seed={aoiId + dateB} imageUrl={imageUrlB} />
                 : <EmptyGridHint text={pipelineError || "Awaiting mask"} />}
             </div>
+            {statusMatrix && <StatusLegend />}
           </CornerFrame>
         </div>
       </div>
@@ -309,10 +339,9 @@ function DistanceGrid({ statusMatrix, rows, cols }) {
   const cells = flattenMatrix(statusMatrix, rows, cols);
   return (
     <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
-      {cells.map((v, i) => {
-        const c = v === 1 ? "rgba(225,74,63,0.9)" : v === 2 ? "rgba(92,113,133,0.85)" : "rgba(63,199,216,0.18)";
-        return <div key={i} style={{ background: c }} />;
-      })}
+      {cells.map((v, i) => (
+        <div key={i} style={{ background: STATUS_INFO[v]?.grid ?? STATUS_INFO[2].grid }} />
+      ))}
     </div>
   );
 }
@@ -321,10 +350,12 @@ function MaskGrid({ statusMatrix, rows, cols }) {
   const cells = flattenMatrix(statusMatrix, rows, cols);
   return (
     <div className="grid" style={{ width: 252, height: 252, gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
-      {cells.map((v, i) => {
-        const background = v === 1 ? "var(--accent-red)" : v === 2 ? "#3a4550" : "#0c141c";
-        return <div key={i} style={{ background, border: "1px solid #0a1016" }} />;
-      })}
+      {cells.map((v, i) => (
+        <div
+          key={i}
+          style={{ background: STATUS_INFO[v]?.grid ?? STATUS_INFO[2].grid, border: "1px solid #0a1016" }}
+        />
+      ))}
     </div>
   );
 }
@@ -338,7 +369,7 @@ function OverlayView({ statusMatrix, rows, cols, seed, imageUrl }) {
         {cells.map((v, i) => (
           <div key={i} style={{
             border: "1px solid rgba(63,199,216,0.1)",
-            background: v === 1 ? "rgba(225,74,63,0.55)" : v === 2 ? "rgba(92,113,133,0.45)" : "transparent",
+            background: v === 1 ? "rgba(225,74,63,0.55)" : v === 2 ? "rgba(74,86,102,0.5)" : "transparent",
             outline: v === 1 ? "1px solid var(--accent-red)" : "none",
           }} />
         ))}
